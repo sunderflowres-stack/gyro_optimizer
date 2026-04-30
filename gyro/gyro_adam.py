@@ -3,15 +3,14 @@ import torch
 from torch.optim import Optimizer
 
 
-class CliffordAdam(Optimizer):
+class GYROAdam(Optimizer):
     """
-    CliffordAdam: Adam optimizer augmented with Clifford geometric rotation.
-    
-    Combines the adaptive learning rate mechanics of Adam with the topological
-    saddle-point bypassing of Clifford algebra. Rotates the gradient vector 
-    before feeding it into the exponential moving average momentum buffers.
-    """
+    GYROAdam: Adam optimizer augmented with geometric gradient rotation.
 
+    Detects gradient oscillations via negative cosine similarity between
+    consecutive steps and applies a norm-preserving 2D planar rotation
+    before updating Adam's exponential moving average buffers.
+    """
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
                  weight_decay=0.0, theta_base=0.3):
         if lr < 0.0:
@@ -20,10 +19,9 @@ class CliffordAdam(Optimizer):
             raise ValueError(f"Invalid beta parameter at index 0: {betas[0]}")
         if not 0.0 <= betas[1] < 1.0:
             raise ValueError(f"Invalid beta parameter at index 1: {betas[1]}")
-
         defaults = dict(lr=lr, betas=betas, eps=eps,
                         weight_decay=weight_decay, theta_base=theta_base)
-        super(CliffordAdam, self).__init__(params, defaults)
+        super(GYROAdam, self).__init__(params, defaults)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -39,10 +37,9 @@ class CliffordAdam(Optimizer):
 
                 grad = p.grad
                 if grad.is_sparse:
-                    raise RuntimeError('CliffordAdam does not support sparse gradients.')
+                    raise RuntimeError('GYROAdam does not support sparse gradients.')
 
                 state = self.state[p]
-
                 if len(state) == 0:
                     state['step'] = 0
                     state['exp_avg'] = torch.zeros_like(p)
@@ -61,40 +58,30 @@ class CliffordAdam(Optimizer):
                 dot = torch.sum(grad * prev_grad)
                 norm_g = torch.norm(grad)
                 norm_pg = torch.norm(prev_grad)
-                
-                grad_rotated = grad.clone()
 
+                grad_rotated = grad.clone()
                 if norm_g > eps and norm_pg > eps:
                     cos_alpha = dot / (norm_g * norm_pg)
-
-                    # Detect oscillation and apply geometric rotation
                     if cos_alpha < 0:
                         proj = (dot / (norm_g ** 2)) * grad
                         ortho = prev_grad - proj
                         norm_ortho = torch.norm(ortho)
-
                         if norm_ortho > eps:
                             ortho_normalized = ortho / norm_ortho
-                            
                             dynamic_scale = torch.tanh(norm_g)
                             theta = torch.tensor(math.pi / 2) * group['theta_base'] * dynamic_scale
-                            
-                            grad_rotated = (grad * torch.cos(theta) + 
+                            grad_rotated = (grad * torch.cos(theta) +
                                             ortho_normalized * norm_g * torch.sin(theta))
 
-                # Standard Adam mechanics with the rotated gradient
                 exp_avg.mul_(beta1).add_(grad_rotated, alpha=1 - beta1)
                 exp_avg_sq.mul_(beta2).addcmul_(grad_rotated, grad_rotated, value=1 - beta2)
 
                 bias_correction1 = 1 - beta1 ** state['step']
                 bias_correction2 = 1 - beta2 ** state['step']
-
                 step_size = group['lr'] / bias_correction1
                 denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
-
                 p.addcdiv_(exp_avg, denom, value=-step_size)
-                
-                # Store the true gradient for the next step's bivector calculation
-                state['prev_grad'].copy_(grad)
+
+                state['prev_grad'].copy_(p.grad if group['weight_decay'] == 0 else grad)
 
         return loss
