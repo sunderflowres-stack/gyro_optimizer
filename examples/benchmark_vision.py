@@ -9,7 +9,7 @@ from torch.optim import SGD, Adam, AdamW
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from gyro import CliffordAdam
+from gyro import GYROAdam
 
 
 class SimpleCNN(nn.Module):
@@ -34,17 +34,23 @@ class SimpleCNN(nn.Module):
 def get_dataloaders(dataset_name, batch_size=64):
     """Returns train and test dataloaders for specified dataset."""
     if dataset_name == 'MNIST':
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
         train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
         test_dataset = datasets.MNIST('./data', train=False, transform=transform)
         channels = 1
     elif dataset_name == 'CIFAR10':
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
         train_dataset = datasets.CIFAR10('./data', train=True, download=True, transform=transform)
         test_dataset = datasets.CIFAR10('./data', train=False, transform=transform)
         channels = 3
     else:
-        raise ValueError("Unsupported dataset.")
+        raise ValueError(f"Unsupported dataset: {dataset_name}")
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
@@ -68,28 +74,26 @@ def evaluate(model, test_loader, device):
 def train_and_evaluate(optimizer_class, opt_name, dataset_name, epochs=3, **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_loader, test_loader, channels = get_dataloaders(dataset_name)
-    
+
     model = SimpleCNN(input_channels=channels).to(device)
     optimizer = optimizer_class(model.parameters(), **kwargs)
     criterion = nn.CrossEntropyLoss()
 
     print(f"\nEvaluating {opt_name} on {dataset_name}...")
     start_time = time.time()
-    
+
     for epoch in range(epochs):
         model.train()
         running_loss = 0.0
         for inputs, targets in train_loader:
             inputs, targets = inputs.to(device), targets.to(device)
-            
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, targets)
             loss.backward()
             optimizer.step()
-            
             running_loss += loss.item()
-            
+
         avg_loss = running_loss / len(train_loader)
         print(f" Epoch {epoch+1}/{epochs} | Train Loss: {avg_loss:.4f}")
 
@@ -101,13 +105,13 @@ def train_and_evaluate(optimizer_class, opt_name, dataset_name, epochs=3, **kwar
 
 def main():
     datasets_to_test = ['MNIST', 'CIFAR10']
-    
+
     for ds in datasets_to_test:
         print(f"\n{'='*40}\nDataset: {ds}\n{'='*40}")
-        train_and_evaluate(SGD, "SGD", ds, lr=0.01, momentum=0.9)
-        train_and_evaluate(Adam, "Adam", ds, lr=0.001)
-        train_and_evaluate(AdamW, "AdamW", ds, lr=0.001, weight_decay=0.01)
-        train_and_evaluate(CliffordAdam, "GYRO", ds, lr=0.001, theta_base=0.3)
+        train_and_evaluate(SGD,      "SGD",    ds, lr=0.01,  momentum=0.9)
+        train_and_evaluate(Adam,     "Adam",   ds, lr=0.001)
+        train_and_evaluate(AdamW,    "AdamW",  ds, lr=0.001, weight_decay=0.01)
+        train_and_evaluate(GYROAdam, "GYRO",   ds, lr=0.001, theta_base=0.3)
 
 
 if __name__ == "__main__":
