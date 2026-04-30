@@ -1,4 +1,8 @@
-from .clifford_sgd import CliffordSGD
-from .clifford_adam import CliffordAdam
+from .gyro_adam import GYROAdam
+from .gyro_sgd import GYROSGD
 
-__all__ = ['CliffordSGD', 'CliffordAdam']
+# Legacy aliases for backward compatibility
+CliffordAdam = GYROAdam
+CliffordSGD = GYROSGD
+
+__all__ = ['GYROAdam', 'GYROSGD', 'CliffordAdam', 'CliffordSGD']
