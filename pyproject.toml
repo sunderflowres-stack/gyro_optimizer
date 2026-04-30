@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "gyro-optimizer"
+version = "0.1.0"
+description = "GYRO: Geometric Yield Rotation Optimizer — Adam and SGD augmented with 2D planar gradient rotation for improved traversal of ravines and saddle points."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/sunderflowres-stack/gyro_optimizer"
+Repository = "https://github.com/sunderflowres-stack/gyro_optimizer"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gyro*"]
