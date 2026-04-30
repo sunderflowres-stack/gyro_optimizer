@@ -3,23 +3,21 @@ import torch
 from torch.optim import Optimizer
 
 
-class CliffordSGD(Optimizer):
+class GYROSGD(Optimizer):
     """
-    CliffordSGD: Stochastic Gradient Descent with Clifford-inspired geometric rotation.
-    
-    Uses bivector representations to detect gradient oscillation across steps
-    and applies an orthogonal rotation in the plane spanned by the current
-    and previous gradients to bypass saddle points and narrow ravines.
-    """
+    GYROSGD: SGD augmented with geometric gradient rotation.
 
+    Detects gradient oscillations via negative cosine similarity between
+    consecutive steps and applies a norm-preserving 2D planar rotation
+    to bypass saddle points and narrow ravines.
+    """
     def __init__(self, params, lr=1e-3, theta_base=0.3, eps=1e-8):
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if theta_base < 0.0:
             raise ValueError(f"Invalid theta_base: {theta_base}")
-
         defaults = dict(lr=lr, theta_base=theta_base, eps=eps)
-        super(CliffordSGD, self).__init__(params, defaults)
+        super(GYROSGD, self).__init__(params, defaults)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -39,36 +37,27 @@ class CliffordSGD(Optimizer):
 
                 grad = p.grad
                 state = self.state[p]
-
                 if len(state) == 0:
                     state['prev_grad'] = torch.zeros_like(grad)
 
                 prev_grad = state['prev_grad']
-
                 dot = torch.sum(grad * prev_grad)
                 norm_g = torch.norm(grad)
                 norm_pg = torch.norm(prev_grad)
 
                 if norm_g > eps and norm_pg > eps:
                     cos_alpha = dot / (norm_g * norm_pg)
-
-                    # Detect oscillation (obtuse angle between gradients)
                     if cos_alpha < 0:
                         proj = (dot / (norm_g ** 2)) * grad
                         ortho = prev_grad - proj
                         norm_ortho = torch.norm(ortho)
-
                         if norm_ortho > eps:
                             ortho_normalized = ortho / norm_ortho
-                            
-                            # Dynamic rotor decay based on gradient norm
                             dynamic_scale = torch.tanh(norm_g)
                             theta = torch.tensor(math.pi / 2) * theta_base * dynamic_scale
-                            
-                            # Apply rotation in the bivector plane
-                            grad_rotated = (grad * torch.cos(theta) + 
+                            grad_rotated = (grad * torch.cos(theta) +
                                             ortho_normalized * norm_g * torch.sin(theta))
-                            grad.copy_(grad_rotated)
+                            grad = grad_rotated
 
                 p.add_(grad, alpha=-lr)
                 state['prev_grad'].copy_(grad)
