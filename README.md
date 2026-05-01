@@ -48,6 +48,6 @@ GYRO matches SGD on MNIST accuracy while running 6% faster than Adam, and sits w
 These benchmarks should be interpreted as a sanity check rather than a performance claim. Meaningful differentiation is expected on deeper architectures, longer schedules, and tasks with more pathological loss surfaces. Extended benchmarks are in progress.
 
 ```python
-from gyro import CliffordAdam
-optimizer = CliffordAdam(model.parameters(), lr=1e-3, theta_base=0.3)
+from gyro import GYROAdam
+optimizer = GYROAdam(model.parameters(), lr=1e-3, theta_base=0.3)
 ```
