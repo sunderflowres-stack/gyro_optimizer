@@ -57,16 +57,17 @@ def train(optimizer_class, name, batches, epochs=10, **kwargs):
     optimizer = optimizer_class(model.parameters(), **kwargs)
     criterion = nn.CrossEntropyLoss()
 
-    # Split into train/val to detect overfitting
     split = int(len(batches) * 0.9)
     train_batches = batches[:split]
     val_batches = batches[split:]
 
     print(f"\nTraining {name} on {'GPU' if device.type == 'cuda' else 'CPU'}...")
+    print(f"Train batches: {len(train_batches)} | Val batches: {len(val_batches)}")
+
     for epoch in range(epochs):
         model.train()
         total_loss = 0
-        for x, y in train_batches:  # use all training data, not just 200
+        for i, (x, y) in enumerate(train_batches):
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             logits = model(x)
@@ -76,7 +77,9 @@ def train(optimizer_class, name, batches, epochs=10, **kwargs):
             optimizer.step()
             total_loss += loss.item()
 
-        # Validation loss
+            if (i + 1) % 50 == 0:
+                print(f"  [{i+1}/{len(train_batches)}] Loss: {total_loss/(i+1):.4f}", flush=True)
+
         model.eval()
         val_loss = 0
         with torch.no_grad():
@@ -85,7 +88,7 @@ def train(optimizer_class, name, batches, epochs=10, **kwargs):
                 logits = model(x)
                 val_loss += criterion(logits.view(-1, 256), y.view(-1)).item()
 
-        print(f" Epoch {epoch+1}/{epochs} | Train Loss: {total_loss/len(train_batches):.4f} | Val Loss: {val_loss/len(val_batches):.4f}")
+        print(f" Epoch {epoch+1}/{epochs} | Train Loss: {total_loss/len(train_batches):.4f} | Val Loss: {val_loss/len(val_batches):.4f}", flush=True)
 
 if __name__ == '__main__':
     batches = get_text_data()
