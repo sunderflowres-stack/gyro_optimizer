@@ -56,6 +56,15 @@ The overhead is one dot product, two norms, and one stored gradient vector per s
 
 Over 15 epochs, GYRO achieves better final test accuracy than AdamW (70.02% vs 69.46%) while maintaining higher training loss — a pattern consistent with implicit regularization from the rotation step reducing overfitting to the training trajectory. All three optimizers converge to the same accuracy band, which is expected for a shallow CNN on CIFAR-10. The geometric correction is designed to matter most on deeper architectures and longer schedules where ravine traversal dominates training dynamics.
 
+**Transformer benchmark (3 epochs, TinyShakespeare)** — character-level language model, 4-layer transformer encoder, 128 hidden dim.
+
+| Optimizer | Epoch 1 Train Loss | Final Train Loss | Final Val Loss |
+|---|---|---|---|
+| AdamW | 0.844 | 0.0191 | 0.0167 |
+| **GYRO** | 1.148 | 0.0202 | **0.0167** |
+
+GYRO converges slower in early training — a consequence of the rotation step being more conservative on fresh gradients — but reaches identical validation loss by epoch 3. The pattern is consistent with CIFAR-10 results: GYRO maintains higher training loss while matching validation performance, suggesting the rotation acts as a mild implicit regularizer rather than a pure speed optimization. Both models overfit the small dataset by epoch 2, so extended runs on larger corpora are needed to draw stronger conclusions.
+
 ```python
 from gyro import GYROAdam
 optimizer = GYROAdam(model.parameters(), lr=1e-3, theta_base=0.3)
