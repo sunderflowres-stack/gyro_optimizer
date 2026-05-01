@@ -76,7 +76,10 @@ class GYROAdam(Optimizer):
                             norm_ortho = torch.norm(ortho)
                             if norm_ortho > eps:
                                 ortho_normalized = ortho / norm_ortho
-                                dynamic_scale = torch.tanh(norm_g)
+                                N = grad.numel()
+                                rms_norm_g = norm_g / math.sqrt(N)
+                                scale_factor = 1000.0 
+                                dynamic_scale = torch.tanh(rms_norm_g * scale_factor)
                                 theta = torch.tensor(math.pi / 2) * group['theta_base'] * dynamic_scale
                                 grad_rotated = (grad * torch.cos(theta) +
                                                 ortho_normalized * norm_g * torch.sin(theta))
