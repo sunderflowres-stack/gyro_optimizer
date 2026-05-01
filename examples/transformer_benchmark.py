@@ -25,7 +25,7 @@ class TinyGPT(nn.Module):
         x = self.transformer(x)
         return self.head(x)
 
-def get_text_data(seq_len=128, batch_size=64):
+def get_text_data(seq_len=128, batch_size=64, max_batches=2000):
     data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
     os.makedirs(data_dir, exist_ok=True)
     path = os.path.join(data_dir, 'shakespeare.txt')
