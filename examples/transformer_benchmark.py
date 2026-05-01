@@ -5,7 +5,6 @@ import torch.nn as nn
 from torch.optim import AdamW
 from gyro import GYROAdam
 
-
 class TinyGPT(nn.Module):
     def __init__(self, vocab_size=256, d_model=128, n_heads=4, n_layers=4, seq_len=128):
         super().__init__()
@@ -25,7 +24,6 @@ class TinyGPT(nn.Module):
         x = self.embed(x) + self.pos(pos)
         x = self.transformer(x)
         return self.head(x)
-
 
 def get_text_data(seq_len=128, batch_size=64):
     data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -53,17 +51,22 @@ def get_text_data(seq_len=128, batch_size=64):
         batches.append((x, y))
     return batches
 
-
 def train(optimizer_class, name, batches, epochs=10, **kwargs):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = TinyGPT().to(device)
     optimizer = optimizer_class(model.parameters(), **kwargs)
     criterion = nn.CrossEntropyLoss()
 
+    # Split into train/val to detect overfitting
+    split = int(len(batches) * 0.9)
+    train_batches = batches[:split]
+    val_batches = batches[split:]
+
     print(f"\nTraining {name} on {'GPU' if device.type == 'cuda' else 'CPU'}...")
     for epoch in range(epochs):
+        model.train()
         total_loss = 0
-        for x, y in batches[:200]:
+        for x, y in train_batches:  # use all training data, not just 200
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             logits = model(x)
@@ -72,8 +75,17 @@ def train(optimizer_class, name, batches, epochs=10, **kwargs):
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             total_loss += loss.item()
-        print(f" Epoch {epoch+1}/{epochs} | Loss: {total_loss/200:.4f}")
 
+        # Validation loss
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for x, y in val_batches:
+                x, y = x.to(device), y.to(device)
+                logits = model(x)
+                val_loss += criterion(logits.view(-1, 256), y.view(-1)).item()
+
+        print(f" Epoch {epoch+1}/{epochs} | Train Loss: {total_loss/len(train_batches):.4f} | Val Loss: {val_loss/len(val_batches):.4f}")
 
 if __name__ == '__main__':
     batches = get_text_data()
