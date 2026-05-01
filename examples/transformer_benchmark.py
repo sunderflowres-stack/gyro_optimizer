@@ -44,7 +44,7 @@ def get_text_data(seq_len=128, batch_size=64):
     data = torch.tensor([ord(c) % 256 for c in text], dtype=torch.long)
     num_batches = (len(data) - seq_len) // batch_size
     batches = []
-    for i in range(num_batches):
+    for i in range(min(num_batches, max_batches)):
         idx = i * batch_size
         x = torch.stack([data[idx + j: idx + j + seq_len] for j in range(batch_size)])
         y = torch.stack([data[idx + j + 1: idx + j + seq_len + 1] for j in range(batch_size)])
@@ -92,5 +92,5 @@ def train(optimizer_class, name, batches, epochs=10, **kwargs):
 
 if __name__ == '__main__':
     batches = get_text_data()
-    train(AdamW,    'AdamW', batches, epochs=10, lr=1e-3, weight_decay=0.01)
-    train(GYROAdam, 'GYRO',  batches, epochs=10, lr=1e-3, theta_base=0.3)
+    train(AdamW,    'AdamW', batches, epochs=3, lr=1e-3, weight_decay=0.01)
+    train(GYROAdam, 'GYRO',  batches, epochs=3, lr=1e-3, theta_base=0.3)
