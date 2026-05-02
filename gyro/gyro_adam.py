@@ -57,7 +57,6 @@ class GYROAdam(Optimizer):
                     state['step'] = 0
                     state['exp_avg'] = torch.zeros_like(p)
                     state['exp_avg_sq'] = torch.zeros_like(p)
-                    state['prev_grad'] = None
 
                 exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
                 beta1, beta2 = group['betas']
@@ -65,25 +64,20 @@ class GYROAdam(Optimizer):
                 state['step'] += 1
 
                 grad_rotated = grad.clone()
-                prev_grad = state['prev_grad']
 
-                if prev_grad is not None:
-                    dot = torch.sum(grad * prev_grad)
-                    norm_g = torch.norm(grad)
-                    norm_pg = torch.norm(prev_grad)
+                norm_g = torch.norm(grad)
+                norm_ea = torch.norm(exp_avg)
 
-                    if norm_g > eps and norm_pg > eps:
-                        cos_alpha = dot / (norm_g * norm_pg)
-                        if cos_alpha < 0:
-                            proj = (dot / (norm_pg ** 2)) * prev_grad
-                            grad_proj = grad - proj
-                            norm_grad_proj = torch.norm(grad_proj)
-                            if norm_grad_proj > eps:
-                                grad_rotated = grad_proj * (norm_g / norm_grad_proj)
-
-                if state['prev_grad'] is None:
-                    state['prev_grad'] = torch.zeros_like(grad)
-                state['prev_grad'].copy_(p.grad)
+                if norm_g > eps and norm_ea > eps:
+                    dot = torch.sum(grad * exp_avg)
+                    cos_alpha = dot / (norm_g * norm_ea)
+                    
+                    if cos_alpha < 0:
+                        proj = (dot / (norm_ea ** 2)) * exp_avg
+                        grad_proj = grad - proj
+                        norm_grad_proj = torch.norm(grad_proj)
+                        if norm_grad_proj > eps:
+                            grad_rotated = grad_proj * (norm_g / norm_grad_proj)
 
                 exp_avg.mul_(beta1).add_(grad_rotated, alpha=1 - beta1)
                 exp_avg_sq.mul_(beta2).addcmul_(grad_rotated, grad_rotated, value=1 - beta2)
