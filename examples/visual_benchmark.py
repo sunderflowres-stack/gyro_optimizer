@@ -158,7 +158,7 @@ def main():
     
     # Target: GYRO
     results['GYRO'] = train_and_track(
-        GYROAdam, "GYRO", dataset, epochs=epochs, lr=0.001, theta_base=0.3
+        GYROAdam, "GYRO", dataset, epochs=epochs, lr=0.001
     )
     
     # Optional: SGD with Momentum for reference
