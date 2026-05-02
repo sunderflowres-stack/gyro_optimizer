@@ -4,28 +4,33 @@ from torch.optim import Optimizer
 
 class GYROSGD(Optimizer):
     """
-    GYROSGD: SGD augmented with geometric gradient projection.
+    GYROSGD: SGD augmented with momentum-aware gradient projection.
 
     Detects gradient oscillations by comparing the current gradient against
-    the exponential moving average buffer. Removes the oscillating component
-    and rescales to preserve the original gradient norm.
+    the exponential moving average buffer. When the cosine similarity drops
+    below -theta_base, the oscillating component is removed and the gradient
+    is rescaled to preserve its original norm.
 
-    The projection operates per-parameter-tensor, not globally across the
-    entire model, so norm computations are local and never require
-    cross-layer synchronization.
+    The projection operates per-parameter-tensor, so norm computations are local
+    and never require cross-layer synchronization.
 
     Args:
         params:     iterable of parameters to optimize
         lr:         learning rate (default: 1e-3)
         momentum:   EMA decay for gradient buffer (default: 0.9)
         eps:        numerical stability term (default: 1e-8)
-        theta_base: retained for backward compatibility, currently unused (default: 0.3)
+        theta_base: oscillation threshold in [0, 1). Projection triggers when
+                    cos(g_t, m_t) < -theta_base. At 0.0 any opposing direction
+                    triggers correction; higher values require stronger oscillation.
+                    (default: 0.0)
     """
-    def __init__(self, params, lr=1e-3, momentum=0.9, theta_base=0.3, eps=1e-8):
+    def __init__(self, params, lr=1e-3, momentum=0.9, theta_base=0.0, eps=1e-8):
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if not 0.0 <= momentum < 1.0:
             raise ValueError(f"Invalid momentum: {momentum}")
+        if not 0.0 <= theta_base < 1.0:
+            raise ValueError(f"theta_base must be in [0, 1), got: {theta_base}")
         defaults = dict(lr=lr, momentum=momentum, theta_base=theta_base, eps=eps)
         super(GYROSGD, self).__init__(params, defaults)
 
@@ -37,34 +42,39 @@ class GYROSGD(Optimizer):
                 loss = closure()
 
         for group in self.param_groups:
-            lr = group['lr']
-            momentum = group['momentum']
-            eps = group['eps']
+            lr         = group['lr']
+            momentum   = group['momentum']
+            eps        = group['eps']
+            theta_base = group['theta_base']
 
             for p in group['params']:
                 if p.grad is None:
                     continue
 
-                grad = p.grad.clone()
+                grad = p.grad
                 state = self.state[p]
                 if len(state) == 0:
-                    state['exp_avg'] = torch.zeros_like(grad)
+                    state['exp_avg'] = torch.zeros_like(grad, memory_format=torch.preserve_format)
 
                 exp_avg = state['exp_avg']
-                grad_projected = grad.clone()
 
-                norm_g = torch.norm(grad)
-                norm_ea = torch.norm(exp_avg)
+                grad_projected = grad.clone()
+                grad_f32       = grad.float()
+                exp_avg_f32    = exp_avg.float()
+                norm_g         = torch.norm(grad_f32)
+                norm_ea        = torch.norm(exp_avg_f32)
 
                 if norm_g > eps and norm_ea > eps:
-                    dot = torch.sum(grad * exp_avg)
+                    dot       = torch.sum(grad_f32 * exp_avg_f32)
                     cos_alpha = dot / (norm_g * norm_ea)
-                    if cos_alpha < 0:
-                        proj = (dot / (norm_ea ** 2)) * exp_avg
-                        grad_proj = grad - proj
+
+                    if cos_alpha < -theta_base:
+                        proj           = (dot / (norm_ea ** 2)) * exp_avg_f32
+                        grad_proj      = grad_f32 - proj
                         norm_grad_proj = torch.norm(grad_proj)
+
                         if norm_grad_proj > eps:
-                            grad_projected = grad_proj * (norm_g / norm_grad_proj)
+                            grad_projected = (grad_proj * (norm_g / norm_grad_proj)).to(grad.dtype)
 
                 exp_avg.mul_(momentum).add_(grad_projected, alpha=1 - momentum)
                 p.add_(grad_projected, alpha=-lr)
