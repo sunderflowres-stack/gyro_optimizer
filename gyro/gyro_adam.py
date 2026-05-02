@@ -9,16 +9,9 @@ class GYROAdam(Optimizer):
 
     Detects gradient oscillations by comparing the current gradient against
     the exponential moving average buffer. When the cosine similarity drops
-    below -theta_base, the oscillating component is removed and the gradient
-    is rescaled to preserve its original norm before updating Adam's EMA buffers.
-
-    Comparing against the EMA buffer rather than a single previous gradient
-    makes oscillation detection more stable, as the buffer represents a smoothed
-    history of past gradient directions. No additional state is required beyond
-    Adam's existing buffers.
-
-    The projection operates per-parameter-tensor, so norm computations are local
-    and never require cross-layer synchronization.
+    below -theta_base, the oscillating component is partially or fully removed
+    and the gradient is rescaled to preserve its original norm before updating
+    Adam's EMA buffers.
 
     Args:
         params:       iterable of parameters to optimize
@@ -28,11 +21,13 @@ class GYROAdam(Optimizer):
         weight_decay: decoupled weight decay coefficient (default: 0.0)
         theta_base:   oscillation threshold in [0, 1). Projection triggers when
                       cos(g_t, m_t) < -theta_base. At 0.0 any opposing direction
-                      triggers correction; higher values require stronger oscillation.
-                      (default: 0.0)
+                      triggers correction. (default: 0.0)
+        proj_factor:  soft projection strength in [0, 1]. At 1.0 the oscillating
+                      component is fully removed. At 0.5 only half is removed,
+                      allowing partial momentum in the opposing direction. (default: 1.0)
     """
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
-                 weight_decay=0.0, theta_base=0.0):
+                 weight_decay=0.0, theta_base=0.0, proj_factor=1.0):
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if not 0.0 <= betas[0] < 1.0:
@@ -41,8 +36,11 @@ class GYROAdam(Optimizer):
             raise ValueError(f"Invalid beta parameter at index 1: {betas[1]}")
         if not 0.0 <= theta_base < 1.0:
             raise ValueError(f"theta_base must be in [0, 1), got: {theta_base}")
+        if not 0.0 <= proj_factor <= 1.0:
+            raise ValueError(f"proj_factor must be in [0, 1], got: {proj_factor}")
         defaults = dict(lr=lr, betas=betas, eps=eps,
-                        weight_decay=weight_decay, theta_base=theta_base)
+                        weight_decay=weight_decay, theta_base=theta_base,
+                        proj_factor=proj_factor)
         super(GYROAdam, self).__init__(params, defaults)
 
     @torch.no_grad()
@@ -69,7 +67,7 @@ class GYROAdam(Optimizer):
 
                 exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
                 beta1, beta2 = group['betas']
-                eps = group['eps']
+                eps          = group['eps']
                 state['step'] += 1
 
                 grad_rotated = grad.clone()
@@ -84,7 +82,7 @@ class GYROAdam(Optimizer):
 
                     if cos_alpha < -group['theta_base']:
                         proj           = (dot / (norm_ea ** 2)) * exp_avg_f32
-                        grad_proj      = grad_f32 - proj
+                        grad_proj      = grad_f32 - group['proj_factor'] * proj
                         norm_grad_proj = torch.norm(grad_proj)
 
                         if norm_grad_proj > eps:
