@@ -8,30 +8,31 @@ class GYROSGD(Optimizer):
 
     Detects gradient oscillations by comparing the current gradient against
     the exponential moving average buffer. When the cosine similarity drops
-    below -theta_base, the oscillating component is removed and the gradient
-    is rescaled to preserve its original norm.
-
-    The projection operates per-parameter-tensor, so norm computations are local
-    and never require cross-layer synchronization.
+    below -theta_base, the oscillating component is partially or fully removed
+    and the gradient is rescaled to preserve its original norm.
 
     Args:
-        params:     iterable of parameters to optimize
-        lr:         learning rate (default: 1e-3)
-        momentum:   EMA decay for gradient buffer (default: 0.9)
-        eps:        numerical stability term (default: 1e-8)
-        theta_base: oscillation threshold in [0, 1). Projection triggers when
-                    cos(g_t, m_t) < -theta_base. At 0.0 any opposing direction
-                    triggers correction; higher values require stronger oscillation.
-                    (default: 0.0)
+        params:      iterable of parameters to optimize
+        lr:          learning rate (default: 1e-3)
+        momentum:    EMA decay for gradient buffer (default: 0.9)
+        eps:         numerical stability term (default: 1e-8)
+        theta_base:  oscillation threshold in [0, 1). (default: 0.0)
+        proj_factor: soft projection strength in [0, 1]. At 1.0 the oscillating
+                     component is fully removed. At 0.5 only half is removed.
+                     (default: 1.0)
     """
-    def __init__(self, params, lr=1e-3, momentum=0.9, theta_base=0.0, eps=1e-8):
+    def __init__(self, params, lr=1e-3, momentum=0.9, theta_base=0.0,
+                 proj_factor=1.0, eps=1e-8):
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if not 0.0 <= momentum < 1.0:
             raise ValueError(f"Invalid momentum: {momentum}")
         if not 0.0 <= theta_base < 1.0:
             raise ValueError(f"theta_base must be in [0, 1), got: {theta_base}")
-        defaults = dict(lr=lr, momentum=momentum, theta_base=theta_base, eps=eps)
+        if not 0.0 <= proj_factor <= 1.0:
+            raise ValueError(f"proj_factor must be in [0, 1], got: {proj_factor}")
+        defaults = dict(lr=lr, momentum=momentum, theta_base=theta_base,
+                        proj_factor=proj_factor, eps=eps)
         super(GYROSGD, self).__init__(params, defaults)
 
     @torch.no_grad()
@@ -42,10 +43,11 @@ class GYROSGD(Optimizer):
                 loss = closure()
 
         for group in self.param_groups:
-            lr         = group['lr']
-            momentum   = group['momentum']
-            eps        = group['eps']
-            theta_base = group['theta_base']
+            lr          = group['lr']
+            momentum    = group['momentum']
+            eps         = group['eps']
+            theta_base  = group['theta_base']
+            proj_factor = group['proj_factor']
 
             for p in group['params']:
                 if p.grad is None:
@@ -70,7 +72,7 @@ class GYROSGD(Optimizer):
 
                     if cos_alpha < -theta_base:
                         proj           = (dot / (norm_ea ** 2)) * exp_avg_f32
-                        grad_proj      = grad_f32 - proj
+                        grad_proj      = grad_f32 - proj_factor * proj
                         norm_grad_proj = torch.norm(grad_proj)
 
                         if norm_grad_proj > eps:
