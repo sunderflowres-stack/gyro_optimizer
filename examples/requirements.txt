@@ -1,0 +1,2 @@
+torchvision>=0.15.0
+matplotlib>=3.5.0
