@@ -37,9 +37,10 @@ The projection operates per-parameter-tensor, not globally across the entire mod
 
 At 3 epochs all optimizers cluster within noise on both datasets. GYRO's lower train loss on CIFAR-10 (0.9295 vs 0.9587 for AdamW) suggests faster early convergence, but short runs are insufficient to observe the trajectory-correction benefit.
 
-<img width="1200" height="500" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/c11ea747-f632-44a5-bed9-91fda77b0aab" />
-
 **Extended run (15 epochs, CIFAR-10)** — longer training reveals trajectory differences between optimizers that 3-epoch snapshots cannot capture.
+
+
+<img width="1200" height="500" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/c11ea747-f632-44a5-bed9-91fda77b0aab" />
 
 | Optimizer | Final Test Accuracy | Best Test Accuracy | Final Train Loss |
 |-----------|-------------------|-------------------|-----------------|
