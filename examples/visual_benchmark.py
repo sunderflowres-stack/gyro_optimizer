@@ -7,9 +7,8 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from torch.optim import SGD, AdamW
+from torch.optim import SGD, Adam, AdamW
 
-# Add parent directory to path to import gyro
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from gyro import GYROAdam
 
@@ -21,8 +20,6 @@ class SimpleCNN(nn.Module):
         self.conv1 = nn.Conv2d(input_channels, 16, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        
-        # Adaptive factor for input size (MNIST 28x28 vs CIFAR 32x32)
         self.fc_input_dim = 32 * 7 * 7 if input_channels == 1 else 32 * 8 * 8
         self.fc1 = nn.Linear(self.fc_input_dim, 128)
         self.fc2 = nn.Linear(128, num_classes)
@@ -37,14 +34,13 @@ class SimpleCNN(nn.Module):
 
 
 def get_dataloaders(dataset_name, batch_size=128):
-    """Returns train and test dataloaders for specified dataset."""
     if dataset_name == 'MNIST':
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))
         ])
         train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
-        test_dataset = datasets.MNIST('./data', train=False, transform=transform)
+        test_dataset  = datasets.MNIST('./data', train=False, transform=transform)
         channels = 1
     elif dataset_name == 'CIFAR10':
         transform = transforms.Compose([
@@ -52,18 +48,17 @@ def get_dataloaders(dataset_name, batch_size=128):
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
         train_dataset = datasets.CIFAR10('./data', train=True, download=True, transform=transform)
-        test_dataset = datasets.CIFAR10('./data', train=False, transform=transform)
+        test_dataset  = datasets.CIFAR10('./data', train=False, transform=transform)
         channels = 3
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    test_loader  = DataLoader(test_dataset,  batch_size=batch_size, shuffle=False)
     return train_loader, test_loader, channels
 
 
 def evaluate(model, test_loader, device):
-    """Calculates accuracy on the test set."""
     model.eval()
     correct = 0
     total = 0
@@ -77,19 +72,19 @@ def evaluate(model, test_loader, device):
     return 100.0 * correct / total
 
 
-def train_and_track(optimizer_class, opt_name, dataset_name, epochs=10, **kwargs):
-    """Trains model and returns history of loss and accuracy."""
+def train_and_track(optimizer_class, opt_name, dataset_name, epochs=15, **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_loader, test_loader, channels = get_dataloaders(dataset_name)
 
-    model = SimpleCNN(input_channels=channels).to(device)
+    model     = SimpleCNN(input_channels=channels).to(device)
     optimizer = optimizer_class(model.parameters(), **kwargs)
     criterion = nn.CrossEntropyLoss()
 
-    history = {'loss': [], 'acc': []}
+    history    = {'loss': [], 'acc': []}
+    start_time = time.time()
 
     print(f"\nTraining {opt_name} on {dataset_name}...")
-    
+
     for epoch in range(epochs):
         model.train()
         running_loss = 0.0
@@ -104,69 +99,69 @@ def train_and_track(optimizer_class, opt_name, dataset_name, epochs=10, **kwargs
 
         avg_loss = running_loss / len(train_loader)
         accuracy = evaluate(model, test_loader, device)
-        
         history['loss'].append(avg_loss)
         history['acc'].append(accuracy)
-        
         print(f" Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Acc: {accuracy:.2f}%")
 
+    elapsed = time.time() - start_time
+    print(f"[{opt_name}] Final Accuracy: {history['acc'][-1]:.2f}% | Time: {elapsed:.1f}s")
     return history
 
 
-def plot_results(all_results, dataset_name):
-    """Generates and saves performance plots."""
-    epochs = range(1, len(next(iter(all_results.values()))['loss']) + 1)
-    
-    plt.figure(figsize=(12, 5))
-    
-    # Plot Loss
-    plt.subplot(1, 2, 1)
+def print_summary(all_results):
+    print(f"\n{'='*60}")
+    print(f"{'Optimizer':<12} {'Final Acc':>10} {'Best Acc':>10} {'Final Loss':>12}")
+    print(f"{'-'*60}")
     for name, hist in all_results.items():
-        plt.plot(epochs, hist['loss'], label=name, marker='o', markersize=4)
-    plt.title(f'Training Loss ({dataset_name})')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.7)
+        final_acc  = hist['acc'][-1]
+        best_acc   = max(hist['acc'])
+        final_loss = hist['loss'][-1]
+        print(f"{name:<12} {final_acc:>9.2f}% {best_acc:>9.2f}% {final_loss:>12.4f}")
+    print(f"{'='*60}")
 
-    # Plot Accuracy
-    plt.subplot(1, 2, 2)
+
+def plot_results(all_results, dataset_name, epochs):
+    epoch_range = range(1, epochs + 1)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
     for name, hist in all_results.items():
-        plt.plot(epochs, hist['acc'], label=name, marker='s', markersize=4)
-    plt.title(f'Test Accuracy ({dataset_name})')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy (%)')
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.7)
+        axes[0].plot(epoch_range, hist['loss'], label=name, marker='o', markersize=4)
+        axes[1].plot(epoch_range, hist['acc'],  label=name, marker='s', markersize=4)
+
+    axes[0].set_title(f'Training Loss ({dataset_name})')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Loss')
+    axes[0].legend()
+    axes[0].grid(True, linestyle='--', alpha=0.7)
+
+    axes[1].set_title(f'Test Accuracy ({dataset_name})')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Accuracy (%)')
+    axes[1].legend()
+    axes[1].grid(True, linestyle='--', alpha=0.7)
 
     plt.tight_layout()
-    filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), f'benchmark_{dataset_name.lower()}.png')
-    plt.savefig(filename)
+    filename = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        f'benchmark_{dataset_name.lower()}.png'
+    )
+    plt.savefig(filename, dpi=150)
     print(f"\nChart saved as {filename}")
 
 
 def main():
-    dataset = 'CIFAR10'  # primary dataset for visualization
-    epochs = 15
-    
+    epochs  = 15
     results = {}
-    
-    # Baseline: AdamW
-    results['AdamW'] = train_and_track(
-        AdamW, "AdamW", dataset, epochs=epochs, lr=0.001, weight_decay=0.01
-    )
-    
-    # Target: GYRO
-    results['GYRO'] = train_and_track(
-        GYROAdam, "GYRO", dataset, epochs=epochs, lr=0.001
-    )
-    
-    # Optional: SGD with Momentum for reference
-    results['SGD'] = train_and_track(
-        SGD, "SGD", dataset, epochs=epochs, lr=0.01, momentum=0.9
-    )
 
-    plot_results(results, dataset)
+    for dataset in ['MNIST', 'CIFAR10']:
+        print(f"\n{'='*40}\nDataset: {dataset}\n{'='*40}")
+        results[dataset] = {}
+        results[dataset]['SGD']    = train_and_track(SGD,      "SGD",   dataset, epochs=epochs, lr=0.01,  momentum=0.9)
+        results[dataset]['Adam']   = train_and_track(Adam,     "Adam",  dataset, epochs=epochs, lr=0.001)
+        results[dataset]['AdamW']  = train_and_track(AdamW,    "AdamW", dataset, epochs=epochs, lr=0.001, weight_decay=0.01)
+        results[dataset]['GYRO']   = train_and_track(GYROAdam, "GYRO",  dataset, epochs=epochs, lr=0.001)
+        print_summary(results[dataset])
+        plot_results(results[dataset], dataset, epochs)
 
 
 if __name__ == "__main__":
