@@ -39,7 +39,10 @@ At 3 epochs all optimizers cluster within noise on both datasets. Short runs are
 
 **Extended run (15 epochs)** — longer training reveals trajectory differences between optimizers that 3-epoch snapshots cannot capture.
 
-<img width="1200" height="500" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/c11ea747-f632-44a5-bed9-91fda77b0aab" />
+<img width="2100" height="750" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/dfa122bd-47ca-40c1-bb94-7ed4e8123e55" />
+
+<img width="2100" height="750" alt="benchmark_mnist" src="https://github.com/user-attachments/assets/05ec212d-4877-4a29-9563-7f74a25a4603" />
+
 
 **MNIST:**
 
