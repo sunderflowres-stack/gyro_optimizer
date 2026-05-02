@@ -93,4 +93,4 @@ def train(optimizer_class, name, batches, epochs=10, **kwargs):
 if __name__ == '__main__':
     batches = get_text_data()
     train(AdamW,    'AdamW', batches, epochs=3, lr=1e-3, weight_decay=0.01)
-    train(GYROAdam, 'GYRO',  batches, epochs=3, lr=1e-3, theta_base=0.3)
+    train(GYROAdam, 'GYRO',  batches, epochs=3, lr=1e-3)
