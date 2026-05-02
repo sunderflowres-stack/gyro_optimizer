@@ -111,7 +111,7 @@ def main():
         train_and_evaluate(SGD,      "SGD",    ds, lr=0.01,  momentum=0.9)
         train_and_evaluate(Adam,     "Adam",   ds, lr=0.001)
         train_and_evaluate(AdamW,    "AdamW",  ds, lr=0.001, weight_decay=0.01)
-        train_and_evaluate(GYROAdam, "GYRO",   ds, lr=0.001, theta_base=0.3)
+        train_and_evaluate(GYROAdam, "GYRO",   ds, lr=0.001)
 
 
 if __name__ == "__main__":
