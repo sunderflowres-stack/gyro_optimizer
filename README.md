@@ -12,9 +12,9 @@ First, the oscillating component is identified via projection of $g_t$ onto $m_t
 
 $$\text{proj} = \frac{\langle g_t,\, m_t \rangle}{\|m_t\|^2} \, m_t$$
 
-Second, this component is subtracted to obtain the corrected gradient:
+Second, this component is subtracted to obtain the corrected gradient. The `proj_factor` parameter controls how much of the oscillating component is removed — at 1.0 it is fully removed, at 0.5 only half is removed:
 
-$$g_{\text{proj}} = g_t - \text{proj}$$
+$$g_{\text{proj}} = g_t - \lambda \cdot \text{proj}, \quad \lambda \in [0, 1]$$
 
 Third, $g_{\text{proj}}$ is rescaled to preserve the original gradient norm:
 
@@ -22,53 +22,105 @@ $$\tilde{g}_t = g_{\text{proj}} \cdot \frac{\|g_t\|}{\|g_{\text{proj}}\|}$$
 
 This is a norm-preserving operation — the magnitude of the gradient is unchanged, only its direction is corrected. $\tilde{g}_t$ is then passed into Adam's exponential moving average buffers as a drop-in replacement for $g_t$.
 
-The projection operates per-parameter-tensor, not globally across the entire model, so norm computations are local and never require cross-layer synchronization. The overhead is one dot product, two norms, and no additional state beyond Adam's existing buffers, keeping both time and memory complexity at $O(N)$, identical to Adam.
+The projection operates per-parameter-tensor, not globally across the entire model, so norm computations are local and never require cross-layer synchronization. All intermediate computations are cast to float32 for numerical stability, supporting mixed-precision training. The overhead is one dot product and two norms per tensor per step, with no additional state beyond Adam's existing buffers, keeping both time and memory complexity at $O(N)$, identical to Adam.
+
+## Hyperparameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `lr` | `1e-3` | Learning rate |
+| `betas` | `(0.9, 0.999)` | EMA coefficients, same as Adam |
+| `eps` | `1e-8` | Numerical stability term |
+| `weight_decay` | `0.0` | Decoupled weight decay |
+| `theta_base` | `0.0` | Oscillation threshold. Projection triggers when cos(g, m) < -theta_base. Higher values ignore weak oscillations. |
+| `proj_factor` | `1.0` | Soft projection strength. 1.0 fully removes the oscillating component, 0.5 removes half. |
 
 ## Benchmarks
 
-**Short run (3 epochs)** — evaluated on MNIST and CIFAR-10 using a standard CNN, identical hyperparameters across all optimizers.
+**Short run (3 epochs)** — standard CNN on MNIST and CIFAR-10, identical hyperparameters across all optimizers.
 
-| Optimizer | MNIST Accuracy | MNIST Time | CIFAR-10 Accuracy | CIFAR-10 Time |
-|-----------|---------------|------------|-------------------|---------------|
-| SGD | 98.99% | 51.0s | 66.03% | 48.8s |
-| Adam | 98.66% | 52.2s | **66.42%** | 50.7s |
-| AdamW | 98.92% | 52.7s | 65.22% | 49.9s |
-| **GYRO** | 98.57% | 61.1s | 65.41% | 51.1s |
+| Optimizer | MNIST Accuracy | CIFAR-10 Accuracy |
+|-----------|---------------|-------------------|
+| SGD | 98.99% | 66.03% |
+| Adam | 98.66% | **66.42%** |
+| AdamW | 98.92% | 65.22% |
+| **GYRO** | 98.57% | 65.41% |
 
-At 3 epochs all optimizers cluster within noise on both datasets. Short runs are insufficient to observe the trajectory-correction benefit — the projection only activates when oscillations are detected, which takes several epochs to become meaningful.
+At 3 epochs all optimizers cluster within noise. The projection only activates when oscillations are detected, which takes several epochs to accumulate a meaningful momentum history.
 
-**Extended run (15 epochs)** — longer training reveals trajectory differences between optimizers that 3-epoch snapshots cannot capture.
+**Extended run (15 epochs)** — longer training reveals trajectory differences that short runs cannot capture.
 
-<img width="2100" height="750" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/dfa122bd-47ca-40c1-bb94-7ed4e8123e55" />
 
-<img width="2100" height="750" alt="benchmark_mnist" src="https://github.com/user-attachments/assets/05ec212d-4877-4a29-9563-7f74a25a4603" />
+<img width="2100" height="750" alt="benchmark_mnist" src="https://github.com/user-attachments/assets/388ce9d8-626c-4ef6-ad86-7c6c3f431e41" />
 
 
 **MNIST:**
 
 | Optimizer | Final Accuracy | Best Accuracy | Final Train Loss |
 |-----------|---------------|--------------|-----------------|
-| SGD | 99.15% | 99.15% | 0.0054 |
-| Adam | 98.51% | 99.14% | 0.0069 |
-| AdamW | 98.88% | 98.98% | 0.0056 |
-| **GYRO** | **99.20%** | **99.20%** | 0.0059 |
+| SGD | 99.08% | 99.08% | 0.0063 |
+| Adam | 99.04% | 99.09% | 0.0075 |
+| AdamW | 99.03% | 99.13% | 0.0068 |
+| **GYRO** | 98.97% | **99.13%** | **0.0052** |
+
+
+<img width="2100" height="750" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/31cf85d6-01fb-4069-af8e-c352eb11678d" />
+
 
 **CIFAR-10:**
 
 | Optimizer | Final Accuracy | Best Accuracy | Final Train Loss |
 |-----------|---------------|--------------|-----------------|
-| SGD | 69.14% | 71.27% | 0.2358 |
-| Adam | 68.84% | 70.26% | 0.4012 |
-| AdamW | 68.17% | 69.31% | 0.4351 |
-| **GYRO** | **69.99%** | 70.21% | **0.3976** |
+| SGD | 69.05% | 70.51% | 0.2568 |
+| Adam | 69.41% | **69.85%** | 0.3887 |
+| AdamW | 68.51% | 69.96% | 0.3948 |
+| **GYRO** | 69.18% | **70.64%** | **0.3843** |
 
-Over 15 epochs GYRO leads on both datasets. On MNIST it achieves the highest final and best accuracy across all optimizers. On CIFAR-10 it outperforms AdamW by 1.82% final accuracy while maintaining lower train loss — consistent with the projection step acting as an implicit regularizer by removing the oscillating component from the gradient before it enters the momentum buffers.
+On MNIST, GYRO achieves the lowest training loss (0.0052) and matches the best accuracy of any optimizer. On CIFAR-10, GYRO achieves the highest best accuracy (70.64%) and lowest training loss. Final accuracy numbers are close across all optimizers on both datasets — the advantage is visible in the loss curves and best-epoch figures rather than the last-epoch snapshot, consistent with the projection acting as a mild implicit regularizer.
 
-**Transformer benchmark**
-SOON.
+**Synthetic benchmarks** — optimization on analytic functions with known minima, isolating trajectory behavior from dataset noise.
 
+
+<img width="1500" height="750" alt="bench_rosenbrock" src="https://github.com/user-attachments/assets/c80e9f83-94a7-4c8e-aed8-0799ba413631" />
+
+
+*Rosenbrock function* — classic narrow curved ravine, global minimum at f(1,1) = 0, 5000 steps:
+
+| Optimizer | Final Loss |
+|-----------|-----------|
+| SGD | 0.003560 |
+| Adam | 0.000225 |
+| AdamW | 0.000227 |
+| **GYRO** | **0.000225** |
+
+
+<img width="1500" height="750" alt="bench_ravine" src="https://github.com/user-attachments/assets/0498a5ea-38be-46a0-87d6-0de59bd8cc12" />
+
+
+*Narrow ravine* — asymmetric quadratic f(x) = 100·x₀² + x₁², global minimum at 0, 3000 steps:
+
+| Optimizer | Final Loss |
+|-----------|-----------|
+| SGD | 1.065446 |
+| Adam | ~0 |
+| AdamW | ~0 |
+| **GYRO** | **~0** |
+
+On the Rosenbrock function GYRO matches Adam exactly. On the narrow ravine SGD fails to converge while all adaptive optimizers including GYRO reach the minimum — confirming the ravine geometry is genuinely difficult and that the projection does not interfere with convergence on pathological landscapes.
+
+**Transformer benchmark** — coming soon.
+
+## Usage
 
 ```python
-from gyro import GYROAdam
+from gyro import GYROAdam, GYROSGD
+
+# Drop-in Adam replacement
 optimizer = GYROAdam(model.parameters(), lr=1e-3)
+
+# With soft projection and threshold
+optimizer = GYROAdam(model.parameters(), lr=1e-3, theta_base=0.1, proj_factor=0.8)
+
+# SGD variant
+optimizer = GYROSGD(model.parameters(), lr=1e-2, momentum=0.9)
 ```
