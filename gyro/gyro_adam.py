@@ -23,8 +23,7 @@ class GYROAdam(Optimizer):
                       cos(g_t, m_t) < -theta_base. At 0.0 any opposing direction
                       triggers correction. (default: 0.0)
         proj_factor:  soft projection strength in [0, 1]. At 1.0 the oscillating
-                      component is fully removed. At 0.5 only half is removed,
-                      allowing partial momentum in the opposing direction. (default: 1.0)
+                      component is fully removed. At 0.5 only half is removed. (default: 1.0)
     """
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
                  weight_decay=0.0, theta_base=0.0, proj_factor=1.0):
@@ -91,13 +90,13 @@ class GYROAdam(Optimizer):
                 exp_avg.mul_(beta1).add_(grad_rotated, alpha=1 - beta1)
                 exp_avg_sq.mul_(beta2).addcmul_(grad_rotated, grad_rotated, value=1 - beta2)
 
-                bias_correction1 = 1 - beta1 ** state['step']
-                bias_correction2 = 1 - beta2 ** state['step']
-                step_size = group['lr'] / bias_correction1
-                denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
+                bias_correction1      = 1 - beta1 ** state['step']
+                bias_correction2_sqrt = math.sqrt(1 - beta2 ** state['step'])
+                step_size = group['lr'] * bias_correction2_sqrt / bias_correction1
+                denom     = exp_avg_sq.sqrt().add_(eps * bias_correction2_sqrt)
 
                 if group['weight_decay'] != 0:
-                    p.data.mul_(1.0 - group['lr'] * group['weight_decay'])
+                    p.mul_(1.0 - group['lr'] * group['weight_decay'])
 
                 p.addcdiv_(exp_avg, denom, value=-step_size)
 
