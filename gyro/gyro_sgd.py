@@ -18,8 +18,7 @@ class GYROSGD(Optimizer):
         eps:         numerical stability term (default: 1e-8)
         theta_base:  oscillation threshold in [0, 1). (default: 0.0)
         proj_factor: soft projection strength in [0, 1]. At 1.0 the oscillating
-                     component is fully removed. At 0.5 only half is removed.
-                     (default: 1.0)
+                     component is fully removed. At 0.5 only half is removed. (default: 1.0)
     """
     def __init__(self, params, lr=1e-3, momentum=0.9, theta_base=0.0,
                  proj_factor=1.0, eps=1e-8):
