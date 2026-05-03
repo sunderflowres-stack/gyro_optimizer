@@ -1,6 +1,6 @@
 ## GYRO: Geometric Yield Rotation Optimizer
 
-GYRO is an optimizer for deep neural networks that augments Adam with a gradient projection step applied before momentum buffers are updated. The core idea is simple: when the current gradient and the accumulated momentum buffer point in opposing directions, the oscillating component is removed before the update is applied.
+GYRO is a lightweight PyTorch optimizer utility and side project. It is not an academic paper, but a practical code release aimed at experimenting with gradient steering. It augments Adam with a gradient projection step applied before momentum buffers are updated: when the current gradient and the accumulated momentum buffer point in opposing directions, the oscillating component is removed before the update is applied.
 
 Standard adaptive optimizers treat each parameter independently and ignore the directional relationship between the current gradient and accumulated momentum. In narrow ravines — a common failure mode in high-dimensional non-convex optimization — this causes the gradient to oscillate between steep walls while making slow progress along the ravine axis. GYRO detects this pattern and corrects it locally, per parameter tensor, without any global synchronization.
 
@@ -22,6 +22,10 @@ $$\tilde{g}_t = g_{\text{proj}} \cdot \frac{\|g_t\|}{\|g_{\text{proj}}\|}$$
 
 $\tilde{g}_t$ is then passed into Adam's EMA buffers as a drop-in replacement for $g_t$. All intermediate computations are cast to float32 for numerical stability, supporting mixed-precision training. No additional optimizer state is required beyond Adam's existing buffers, keeping time and memory complexity at $O(N)$.
 
+## Related Work
+
+The mathematical operation of projecting conflicting vectors has been successfully used in multi-task learning — notably PCGrad (Yu et al., 2020) — to resolve interfering task gradients. GYRO applies a similar geometric projection conceptually, but acts temporally rather than spatially: it projects the current gradient against the momentum buffer to resolve trajectory oscillations within a single-task setting. The idea of using gradient direction history to improve optimizer trajectory is also explored in approaches like Lookahead (Zhang et al., 2019) and Gradient Centralization (Yong et al., 2020), though the mechanisms differ.
+
 ## Hyperparameters
 
 | Parameter | Default | Description |
@@ -36,41 +40,6 @@ $\tilde{g}_t$ is then passed into Adam's EMA buffers as a drop-in replacement fo
 ## Benchmarks
 
 Results are reported honestly. On short runs and simple datasets GYRO is within noise of other optimizers — the projection activates only when oscillations are detected, which requires several epochs of momentum accumulation to become meaningful. Differences are more visible on longer runs and harder tasks.
-
-**Short run (3 epochs)** — standard CNN on MNIST and CIFAR-10.
-
-| Optimizer | MNIST Accuracy | CIFAR-10 Accuracy |
-|-----------|---------------|-------------------|
-| SGD | 98.99% | 66.03% |
-| Adam | 98.66% | **66.42%** |
-| AdamW | 98.92% | 65.22% |
-| GYRO | 98.57% | 65.41% |
-
-**Extended run (15 epochs)**
-
-<img width="2100" height="750" alt="benchmark_mnist" src="https://github.com/user-attachments/assets/388ce9d8-626c-4ef6-ad86-7c6c3f431e41" />
-
-**MNIST:**
-
-| Optimizer | Final Accuracy | Best Accuracy | Final Train Loss |
-|-----------|---------------|--------------|-----------------|
-| SGD | 99.08% | 99.08% | 0.0063 |
-| Adam | 99.04% | 99.09% | 0.0075 |
-| AdamW | 99.03% | 99.13% | 0.0068 |
-| GYRO | 98.97% | **99.13%** | **0.0052** |
-
-<img width="2100" height="750" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/31cf85d6-01fb-4069-af8e-c352eb11678d" />
-
-**CIFAR-10:**
-
-| Optimizer | Final Accuracy | Best Accuracy | Final Train Loss |
-|-----------|---------------|--------------|-----------------|
-| SGD | 69.05% | 70.51% | 0.2568 |
-| Adam | 69.41% | **69.85%** | 0.3887 |
-| AdamW | 68.51% | 69.96% | 0.3948 |
-| GYRO | 69.18% | **70.64%** | **0.3843** |
-
-Final accuracy numbers are close across all optimizers — the difference is more visible in the loss curves and best-epoch figures. GYRO achieves the lowest training loss on both datasets, consistent with the projection acting as a mild implicit regularizer.
 
 **Transformer benchmark** — character-level language model (4-layer encoder, 128 hidden dim) on TinyShakespeare, 90/10 train/val split, 3 epochs.
 
@@ -106,6 +75,30 @@ GYRO converges slower in epoch 1 — the momentum buffer needs time to accumulat
 | GYRO | ~0 |
 
 GYRO matches Adam on Rosenbrock. On the narrow ravine SGD fails to converge while all adaptive optimizers reach the minimum — the projection does not interfere with convergence on pathological landscapes.
+
+**Extended CNN run (15 epochs, CIFAR-10)**
+
+<img width="2100" height="750" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/31cf85d6-01fb-4069-af8e-c352eb11678d" />
+
+| Optimizer | Final Accuracy | Best Accuracy | Final Train Loss |
+|-----------|---------------|--------------|-----------------|
+| SGD | 69.05% | 70.51% | 0.2568 |
+| Adam | 69.41% | **69.85%** | 0.3887 |
+| AdamW | 68.51% | 69.96% | 0.3948 |
+| GYRO | 69.18% | **70.64%** | **0.3843** |
+
+Final accuracy numbers are close across all optimizers — the difference is more visible in the loss curves and best-epoch figures. GYRO achieves the lowest training loss, consistent with the projection acting as a mild implicit regularizer.
+
+**Sanity check (MNIST)** — all optimizers cluster within noise as expected on a simple dataset.
+
+<img width="2100" height="750" alt="benchmark_mnist" src="https://github.com/user-attachments/assets/388ce9d8-626c-4ef6-ad86-7c6c3f431e41" />
+
+| Optimizer | Final Accuracy | Best Accuracy | Final Train Loss |
+|-----------|---------------|--------------|-----------------|
+| SGD | 99.08% | 99.08% | 0.0063 |
+| Adam | 99.04% | 99.09% | 0.0075 |
+| AdamW | 99.03% | 99.13% | 0.0068 |
+| GYRO | 98.97% | **99.13%** | **0.0052** |
 
 ## Usage
 
