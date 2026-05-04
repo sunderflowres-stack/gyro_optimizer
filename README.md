@@ -24,7 +24,11 @@ $\tilde{g}_t$ is then passed into Adam's EMA buffers as a drop-in replacement fo
 
 ## Related Work
 
-The mathematical operation of projecting conflicting vectors has been successfully used in multi-task learning — notably PCGrad (Yu et al., 2020) — to resolve interfering task gradients. GYRO applies a similar geometric projection conceptually, but acts temporally rather than spatially: it projects the current gradient against the momentum buffer to resolve trajectory oscillations within a single-task setting. The idea of using gradient direction history to improve optimizer trajectory is also explored in approaches like Lookahead (Zhang et al., 2019) and Gradient Centralization (Yong et al., 2020), though the mechanisms differ.
+The mathematical operation of projecting conflicting vectors has been successfully used in multi-task learning — notably PCGrad (Yu et al., 2020) — to resolve interfering task gradients. GYRO applies a similar geometric projection conceptually, but acts temporally rather than spatially: it projects the current gradient against the momentum buffer to resolve trajectory oscillations within a single-task setting.
+
+A closely related approach is the Cautious Optimizer (Liang et al., 2024), which also uses the dot product of the instant gradient with the momentum buffer to decide upon a correction. The key difference is where the correction is applied: Cautious modifies the final parameter update with a sign-based mask, leaving momentum buffers unchanged. GYRO applies the correction to the gradient itself before it enters the buffers, so the effect persists in accumulated state across subsequent steps. Whether this distinction matters in practice is an open question.
+
+The idea of using gradient direction history to improve optimizer trajectory is also explored in Lookahead (Zhang et al., 2019) and Gradient Centralization (Yong et al., 2020), though the mechanisms differ.
 
 ## Hyperparameters
 
@@ -36,6 +40,23 @@ The mathematical operation of projecting conflicting vectors has been successful
 | `weight_decay` | `0.0` | Decoupled weight decay |
 | `theta_base` | `0.0` | Oscillation threshold. Projection triggers when cos(g, m) < -theta_base. Higher values ignore weak oscillations. |
 | `proj_factor` | `1.0` | Soft projection strength. 1.0 fully removes the oscillating component, 0.5 removes half. |
+| `warmup_steps` | auto | Steps before projection activates. Defaults to round(1/(1-beta2)) ≈ 1000. Allows momentum to stabilize first. |
+| `telemetry` | `False` | If True, exposes per-step diagnostics via `get_telemetry()`. |
+
+## Telemetry
+
+```python
+optimizer = GYROAdam(model.parameters(), lr=1e-3, telemetry=True)
+
+# After each optimizer.step():
+tel = optimizer.get_telemetry()
+# tel['mean_cos']        — mean cosine similarity between g_t and m_t
+# tel['projection_rate'] — fraction of tensors where projection triggered
+# tel['mean_norm_g']     — mean gradient norm
+# tel['mean_norm_m']     — mean momentum buffer norm
+```
+
+Run `examples/telemetry_example.py` to visualize these diagnostics over training.
 
 ## Benchmarks
 
@@ -65,7 +86,7 @@ GYRO converges slower in epoch 1 — the momentum buffer needs time to accumulat
 
 <img width="1500" height="750" alt="bench_ravine" src="https://github.com/user-attachments/assets/0498a5ea-38be-46a0-87d6-0de59bd8cc12" />
 
-*Narrow ravine* — f(x) = 100·x₀² + x₁², global minimum at 0, 3000 steps:
+*Narrow ravine* — f(x) = 100·x₀² + x₁², global minimum at 0, 3000 steps. SGD requires careful learning rate tuning on ill-conditioned problems — with the default lr used here it stalls, while all adaptive optimizers converge cleanly.
 
 | Optimizer | Final Loss |
 |-----------|-----------|
@@ -74,31 +95,34 @@ GYRO converges slower in epoch 1 — the momentum buffer needs time to accumulat
 | AdamW | ~0 |
 | GYRO | ~0 |
 
-GYRO matches Adam on Rosenbrock. On the narrow ravine SGD fails to converge while all adaptive optimizers reach the minimum — the projection does not interfere with convergence on pathological landscapes.
-
 **Extended CNN run (15 epochs, CIFAR-10)**
 
-<img width="2100" height="750" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/31cf85d6-01fb-4069-af8e-c352eb11678d" />
+
+<img width="2100" height="750" alt="benchmark_cifar10" src="https://github.com/user-attachments/assets/d2f2d473-0623-49a7-9f03-32734d2b4055" />
+
 
 | Optimizer | Final Accuracy | Best Accuracy | Final Train Loss |
 |-----------|---------------|--------------|-----------------|
-| SGD | 69.05% | 70.51% | 0.2568 |
-| Adam | 69.41% | **69.85%** | 0.3887 |
-| AdamW | 68.51% | 69.96% | 0.3948 |
-| GYRO | 69.18% | **70.64%** | **0.3843** |
+| SGD | 68.91% | 69.70% | 0.2625 |
+| Adam | 69.48% | 69.48% | 0.4568 |
+| AdamW | 69.63% | 70.32% | 0.4047 |
+| GYRO | 69.12% | **70.41%** | **0.1912** |
 
-Final accuracy numbers are close across all optimizers — the difference is more visible in the loss curves and best-epoch figures. GYRO achieves the lowest training loss, consistent with the projection acting as a mild implicit regularizer.
+GYRO achieves the lowest training loss by a significant margin (0.1912 vs 0.4047 for AdamW) and the highest best accuracy. The large gap in training loss relative to test accuracy is consistent with the projection acting as an implicit regularizer — the model is not overfitting the training trajectory as aggressively.
 
-**Sanity check (MNIST)** — all optimizers cluster within noise as expected on a simple dataset.
+**Sanity check (MNIST)**
 
-<img width="2100" height="750" alt="benchmark_mnist" src="https://github.com/user-attachments/assets/388ce9d8-626c-4ef6-ad86-7c6c3f431e41" />
+<img width="2100" height="750" alt="benchmark_mnist" src="https://github.com/user-attachments/assets/fdd8dff2-7c04-4eb8-b672-63d919e1f82a" />
+
 
 | Optimizer | Final Accuracy | Best Accuracy | Final Train Loss |
 |-----------|---------------|--------------|-----------------|
-| SGD | 99.08% | 99.08% | 0.0063 |
-| Adam | 99.04% | 99.09% | 0.0075 |
-| AdamW | 99.03% | 99.13% | 0.0068 |
-| GYRO | 98.97% | **99.13%** | **0.0052** |
+| SGD | 99.17% | 99.17% | 0.0057 |
+| Adam | 98.98% | 99.16% | 0.0053 |
+| AdamW | 98.92% | 99.09% | 0.0053 |
+| GYRO | 98.94% | **99.17%** | **0.0044** |
+
+All optimizers cluster within noise on MNIST as expected. GYRO matches the best accuracy of any optimizer and achieves the lowest training loss.
 
 ## Usage
 
@@ -108,8 +132,11 @@ from gyro import GYROAdam, GYROSGD
 # Drop-in Adam replacement
 optimizer = GYROAdam(model.parameters(), lr=1e-3)
 
-# With soft projection and threshold
-optimizer = GYROAdam(model.parameters(), lr=1e-3, theta_base=0.1, proj_factor=0.8)
+# With soft projection, threshold, and warmup
+optimizer = GYROAdam(model.parameters(), lr=1e-3, theta_base=0.1, proj_factor=0.8, warmup_steps=500)
+
+# With telemetry
+optimizer = GYROAdam(model.parameters(), lr=1e-3, telemetry=True)
 
 # SGD variant
 optimizer = GYROSGD(model.parameters(), lr=1e-2, momentum=0.9)
